@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Run For Oxygen</title>
+<style>
+  :root{
+    --bg:#1d1d1d;
+    --card:#ffffff;
+    --muted:#6b7280;
+    --accent:#111827;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+  .wrap{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    box-sizing:border-box;
+  }
+  .container{
+    width:100%;
+    max-width:900px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+  }
+  .hud{
+    width:100%;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    color:var(--muted);
+    font-size:14px;
+    user-select:none;
+  }
+  #gameCanvas{
+    width:100%;
+    height:auto;
+    background:#b0b8c0;
+    border-radius:10px;
+    box-shadow:0 6px 20px rgba(16,24,40,0.08);
+    touch-action:none;
+    display:block;
+  }
+  .controls{ display:flex; gap:8px; align-items:center; }
+  .btn{
+    border:1px solid #e5e7eb;
+    background:#fff;
+    padding:8px 12px;
+    border-radius:8px;
+    font-size:14px;
+    cursor:pointer;
+  }
+  .overlay{
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:200;
+    background:rgba(0,0,0,0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .overlay.show{ display:flex; }
+
+  .dialog{
+    width:min(92%,520px);
+    background:#2d2d2d; 
+    border-radius:12px;
+    padding:18px;
+    box-shadow:0 10px 30px rgba(2,6,23,0.2);
+    color:#f0f0f0; 
+  }
+  .dialog h3{ 
+    margin:0 0 8px 0; 
+    font-size:18px; 
+    color:#ffffff;
+    text-align:left;
+  }
+  .dialog p{ 
+    margin:0 0 12px 0; 
+    color:#ccc;
+    font-size:14px;
+    text-align:left;
+  }
+  .precautions{
+    margin:8px 0 14px 0;
+    padding-left:18px;
+    color:#ccc;
+    font-size:14px;
+  }
+  .dialog .actions{ display:flex; justify-content:center; gap:10px; margin-top: 0; }
+  .dialog .restart{
+    background:#f0f0f0;
+    color:#111827;
+    padding:8px 14px;
+    border-radius:8px;
+    border:none;
+    cursor:pointer;
+    font-weight:600;
+  }
+
+  .note{ font-size:13px;color:var(--muted); text-align:center; margin-top:6px; }
+  @media (max-width:420px){
+    .dialog{ padding:14px; }
+    .hud{ font-size:13px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="container" role="application" aria-label="Stickman runner game">
+    <div class="hud" aria-hidden="false">
+      <div>Run For Oxygen</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div id="scoreDisplay">Score: 0</div>
+        <div class="controls">
+          <button id="restartBtn" class="btn" aria-label="Restart" type="button">Restart</button>
+          <button id="installBtn" class="btn" style="display:none" type="button">Install</button>
+        </div>
+      </div>
+    </div>
+    <canvas id="gameCanvas" width="900" height="240" role="img" aria-label="Runner game canvas"></canvas>
+    <div class="note">Tap anywhere to jump.</div> 
+  </div>
+</div>
+
+<div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="dialog" id="dialog">
+    <h3>Health Precautions</h3>
+    <p>Please review these precautions. (Placeholder — replace with your text.)</p>
+    <ul class="precautions">
+      <li>• Placeholder precaution #1 — edit me.</li>
+      <li>• Placeholder precaution #2 — edit me.</li>
+    </ul>
+    <div class="actions">
+      <button id="dialogRestart" class="restart" type="button">Restart</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Service worker registration */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed', err));
+}
+
+/* Canvas & scaling helpers */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvasForDPR() {
+  const containerWidth = canvas.clientWidth || Math.min(window.innerWidth - 40, 900);
+  const logicalW = Math.max(320, containerWidth);
+  const logicalH = Math.round(logicalW * 360 / 900);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = logicalW * dpr;
+  canvas.height = logicalH * dpr;
+  canvas.style.width = logicalW + 'px';
+  canvas.style.height = logicalH + 'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+
+/* Game state */
+let W = canvas.width / (window.devicePixelRatio || 1);
+let H = canvas.height / (window.devicePixelRatio || 1);
+function updateWH(){ W = canvas.width / (window.devicePixelRatio || 1); H = canvas.height / (window.devicePixelRatio || 1); }
+
+let gravity = 2.0;
+let running = true;
+let score = 0;
+const scoreDisplay = document.getElementById('scoreDisplay');
+
+const player = { x:60, y:0, w:18, h:36, vy:0, onGround:true };
+let obstacles = [];
+let spawnTimer = 0;
+let baseSpeed = 10; 
+let speed = baseSpeed;
+
+let fogOffsetX1 = 0; 
+let fogOffsetX2 = W / 2;
+
+
+/* Responsive init */
+function initSizes(){
+  updateWH();
+  player.y = H - 10 - player.h;
+  player.x = Math.max(48, Math.round(W * 0.07));
+}
+
+
+/* Input */
+function jump(){ if (!running) return; if (player.onGround){ player.vy=-16; player.onGround=false; }}
+window.addEventListener('keydown', e => { if(e.code==='Space'||e.code==='ArrowUp'||e.key===' '){ e.preventDefault(); jump(); }});
+window.addEventListener('mousedown', e=>{ e.preventDefault(); jump(); });
+window.addEventListener('touchstart', e=>{ e.preventDefault(); jump(); }, {passive:false});
+
+/* Restart and overlay */
+const restartBtn = document.getElementById('restartBtn');
+restartBtn.addEventListener('click', resetGame);
+// FIX: Add touchstart handler for immediate mobile response
+restartBtn.addEventListener('touchstart', resetGame, {passive: true}); 
+
+const overlay = document.getElementById('overlay');
+const dialogRestart = document.getElementById('dialogRestart');
+dialogRestart.addEventListener('click', ()=>{ hideOverlay(); resetGame(); });
+// FIX: Add touchstart handler for dialog button
+dialogRestart.addEventListener('touchstart', ()=>{ hideOverlay(); resetGame(); }, {passive: true}); 
+
+function spawnObstacle() {
+  const width = 20 + Math.round(Math.random()*32);
+  const height = 18 + Math.round(Math.random()*28);
+  const x = W + 10;
+  const y = H - 10 - height;
+  obstacles.push({x,y,w:width,h:height,type:'trash'});
+}
+
+function rectsOverlap(a,b){ return a.x < b.x+b.w && a.x+a.w>b.x && a.y < b.y+b.h && a.y+a.h>b.y; }
+function endGame(){ running=false; showOverlay(); }
+function showOverlay(){ overlay.classList.add('show'); overlay.setAttribute('aria-hidden','false'); }
+function hideOverlay(){ overlay.classList.remove('show'); overlay.setAttribute('aria-hidden','true'); }
+
+/* Update & draw with deltaTime */
+function update(dt) {
+  if(!running) return;
+  player.vy += gravity;
+  player.y += player.vy * dt;
+  if(player.y + player.h >= H-10){ player.y = H-10-player.h; player.vy=0; player.onGround=true; }
+
+  spawnTimer -= dt;
+  if(spawnTimer <= 0){
+    spawnTimer = Math.max(36,60 + Math.round(Math.random()*80)-Math.round(score/100));
+    spawnObstacle();
+  }
+
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o = obstacles[i];
+    o.x -= speed*dt;
+    if(o.x+o.w<0) obstacles.splice(i,1);
+    const playerBox = {x:player.x+2,y:player.y,w:player.w-4,h:player.h};
+    if(rectsOverlap(playerBox,o)){ endGame(); return; }
+  }
+
+  score += 1*dt;
+  if(Math.floor(score)%300===0) speed += 0.25;
+  scoreDisplay.textContent = 'Score: '+Math.floor(score/10);
+
+  /* Update fog position for scrolling effect */
+  fogOffsetX1 = (fogOffsetX1 - speed * 0.2 * dt) % W;
+  fogOffsetX2 = (fogOffsetX2 - speed * 0.4 * dt) % W;
+  if (fogOffsetX1 < -W) fogOffsetX1 += W;
+  if (fogOffsetX2 < -W) fogOffsetX2 += W;
+}
+
+function drawTrash(o){
+  const px=o.x, py=o.y, pw=o.w*0.8, ph=o.h*0.8;
+  ctx.fillStyle='#4a3c2b';
+  ctx.fillRect(px, py+ph*0.6, pw, ph*0.4);
+  ctx.fillRect(px+2, py+ph*0.35, pw*0.75, ph*0.25);
+  ctx.fillRect(px+4, py, pw*0.5, ph*0.25);
+  const flameColors=['#ff9f1c','#ff3f00','#ffd27f'];
+  for(let i=0;i<3;i++){
+    const fx=px+pw*0.15+Math.random()*pw*0.7;
+    const fy=py-Math.random()*12;
+    ctx.fillStyle=flameColors[i];
+    ctx.fillRect(fx, fy, 6, 12);
+  }
+  for(let i=0;i<2;i++){
+    const sx=px+Math.random()*pw;
+    const sy=py-Math.random()*6;
+    ctx.fillStyle='#fff3b0';
+    ctx.fillRect(sx,sy,2,2);
+  }
+}
+
+function drawStickman(){
+  const px=player.x, py=player.y, w=player.w, h=player.h;
+  ctx.lineWidth=2; ctx.strokeStyle='#111827'; ctx.fillStyle='#111827';
+  const headRadius=5;
+  ctx.beginPath(); ctx.arc(px+w/2, py+headRadius+2, headRadius,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(px+w/2, py+headRadius*2+4); ctx.lineTo(px+w/2, py+h-6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px+w/2-8, py+headRadius*2+8); ctx.lineTo(px+w/2+8, py+headRadius*2+12); ctx.stroke();
+  ctx.beginPath(); const legY=py+h-6;
+  ctx.moveTo(px+w/2, legY); ctx.lineTo(px+w/2-8, legY+10);
+  ctx.moveTo(px+w/2, legY); ctx.lineTo(px+w/2+10, legY+(player.onGround?10:4)); ctx.stroke();
+}
+
+
+function drawFog(offsetX, alpha, speedFactor, fogColor) {
+  ctx.globalAlpha = alpha;
+  
+  for (let i = 0; i < 4; i++) {
+    const x = (offsetX + i * W/3) % (W * 1.5);
+    const y = H - 20 - i * 15;
+    const radius = W * 0.4 + i * 20;
+
+    const radialGradient = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius);
+    radialGradient.addColorStop(0, fogColor);
+    radialGradient.addColorStop(1, 'rgba(100, 100, 100, 0)');
+    ctx.fillStyle = radialGradient;
+
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1; 
+}
+
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  /* Draw super air polluted background */
+  const skyGradient = ctx.createLinearGradient(0, 0, 0, H - 10);
+  skyGradient.addColorStop(0, '#7a8899'); 
+  skyGradient.addColorStop(0.7, '#b0b8c0'); 
+  ctx.fillStyle = skyGradient;
+  ctx.fillRect(0, 0, W, H); 
+  
+  // Layer 1 of pollution (fast, dark)
+  drawFog(fogOffsetX2, 0.45, 0.4, 'rgba(60, 60, 60, 1)'); 
+
+  // Draw darker, "dirty" ground
+  ctx.fillStyle='#4a4a4a'; 
+  ctx.fillRect(0,H-10,W,10);
+  
+  // Draw darker ground details
+  ctx.fillStyle='#3b3b3b';
+  for(let gx=0;gx<W;gx+=30){ ctx.fillRect(gx,H-10,14,2); }
+
+  // Draw obstacles
+  obstacles.forEach(o=>{ if(o.type==='trash') drawTrash(o); else { ctx.fillStyle='#2b2b2b'; ctx.fillRect(o.x,o.y,o.w,o.h); }});
+  
+  // Layer 2 of pollution (slow, light - appears over the ground and under the player)
+  drawFog(fogOffsetX1, 0.3, 0.2, 'rgba(80, 80, 80, 1)');
+
+  // Draw player
+  drawStickman();
+}
+
+/* Main loop with deltaTime */
+let rafId, lastTime=performance.now();
+function loop(currentTime){
+  const dt=(currentTime-lastTime)/16.67;
+  lastTime=currentTime;
+  update(dt);
+  draw();
+  if(running) rafId=requestAnimationFrame(loop);
+}
+
+/* Reset game */
+function resetGame(){
+  resizeCanvasForDPR();
+  initSizes();
+  
+  obstacles=[];
+  score=0;
+  speed=baseSpeed;
+  spawnTimer=50;
+  player.vy=0;
+  player.onGround=true;
+  running=true;
+  hideOverlay();
+  lastTime=performance.now();
+  
+  fogOffsetX1 = 0; 
+  fogOffsetX2 = W / 2;
+  scoreDisplay.textContent = 'Score: 0'; 
+
+  if(rafId) cancelAnimationFrame(rafId);
+  rafId=requestAnimationFrame(loop);
+}
+resetGame();
+
+window.addEventListener('resize', resizeCanvasForDPR);
+const resizeObserver = new ResizeObserver(()=>{
+  resizeCanvasForDPR();
+  initSizes();
+});
+resizeObserver.observe(canvas);
+
+/* PWA install */
+let deferredPrompt;
+const installBtn = document.getElementById('installBtn');
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault(); deferredPrompt=e; installBtn.style.display='inline-block';
+});
+installBtn.addEventListener('click', async ()=>{
+  if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; installBtn.style.display='none'; }
+  else alert('Visit this page once while online to cache it for offline play.');
+});
+overlay.addEventListener('click', e=>{ e.stopPropagation(); });
+</script>
+</body>
+</html>
