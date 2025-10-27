@@ -106,6 +106,13 @@
     font-weight:600;
   }
 
+  @keyframes blinker {
+  50% { opacity: 0; }
+}
+.blink {
+  animation: blinker 1s linear infinite;
+}
+
   .note{ font-size:13px;color:var(--muted); text-align:center; margin-top:6px; }
   @media (max-width:420px){
     .dialog{ padding:14px; }
@@ -133,11 +140,20 @@
 
 <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-hidden="true">
   <div class="dialog" id="dialog">
-    <h3>Health Precautions</h3>
-    <p>Please review these precautions. (Placeholder — replace with your text.)</p>
+    <h2 class="blink">GAME OVER!</h2>
+    <p1>you died of something invisible. welcome to the normal.</p1>
+    <p> </p>
+    <p>In view of persistent air quality deterioration and public health concerns, citizens are advised to follow the preventive measures listed below until further notice:</p>
     <ul class="precautions">
-      <li>• Placeholder precaution #1 — edit me.</li>
-      <li>• Placeholder precaution #2 — edit me.</li>
+      <li> Avoid unnecessary outdoor movement during high smog periods.</li>
+      <li> Wear officially approved respiratory masks.</li>
+      <li> Ensure doors and windows remain closed to minimize indoor contamination.</li>
+      <li> Utilize air purifiers or maintain indoor plants to aid air filtration.</li>
+      <li> Refrain from open-air burning of waste, leaves or plastics.</li>
+      <li> Prefer shared transport, walking or cycling to reduce emissions.</li>
+      <li> Monitor daily Air Quality Index updates via authorized channels.</li>
+      <li> Maintain adequate hydration.</li>
+      <li> In case of cough, throat irritation or breathing discomfort, seek medical consultation immediately.</li>
     </ul>
     <div class="actions">
       <button id="dialogRestart" class="restart" type="button">Restart</button>
